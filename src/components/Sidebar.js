@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Home, BatteryCharging, Wind, Thermometer, Settings, User, FileText, Leaf } from "lucide-react";
+import { Home, BatteryCharging, Wind, Thermometer, Settings, User, FileText, Leaf, Droplet } from "lucide-react";
 
 export default function Sidebar() {
   return (
@@ -21,6 +21,10 @@ export default function Sidebar() {
         <Link href="/sensor/port-3" className="flex items-center gap-3 p-3 hover:bg-gray-700 transition">
           <Thermometer size={20} />
           <span>Sensor 3 (TEROS 12)</span>
+        </Link>
+        <Link href="/sensor/evapotranspiration_soil" className="flex items-center gap-3 p-3 hover:bg-gray-700 transition">
+          <Droplet size={20} />
+          <span>Evapotranspiration (ET)</span>
         </Link>
         <Link href="/sensor/summary" className="flex items-center gap-3 p-3 hover:bg-gray-700 transition">
           <FileText size={20} />

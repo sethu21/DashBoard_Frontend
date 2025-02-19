@@ -2,53 +2,63 @@
 
 import { useState, useEffect } from "react";
 import { Line } from "react-chartjs-2";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from "chart.js";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from "chart.js";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 export default function SensorPort1() {
   const [loading, setLoading] = useState(true);
-  const [sensor, setSensor] = useState(null);
+  const [sensorData, setSensorData] = useState([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [error, setError] = useState(null);
-  
-  const port = 1; // Port 1 data is requested here
 
   useEffect(() => {
-    // Fetch sensor data from the backend API
     const fetchSensorData = async () => {
       try {
-        // Fetch data specifically for Port 1
         const response = await fetch("/api/sensors/port1");
         if (!response.ok) {
           throw new Error("Failed to fetch sensor data");
         }
-    
-        const data = await response.json();
-    
-        const filteredData = data.data
-          .filter((entry) => entry.timestamp && entry.water_content !== undefined)
-          .map((entry) => ({
-            ...entry,
-            soil_temp: entry.soil_temp === "N/A" || entry.soil_temp === "#N/A" ? null : Number(entry.soil_temp),
-            bulk_ec: entry.bulk_ec === "N/A" ? null : Number(entry.bulk_ec),
-          }));
-    
-        setSensor({ ...data, data: filteredData });
-    
-        if (filteredData.length > 0) {
-          const latestDate = filteredData[filteredData.length - 1].timestamp.split(" ")[0];
+        const result = await response.json();
+        const dataArray = result.data || result.etResults;
+        if (!dataArray || !Array.isArray(dataArray)) {
+          throw new Error("API response is missing a valid data array");
+        }
+        const processedData = dataArray.filter(
+          (entry) => entry.timestamp && entry.water_content !== undefined
+        );
+        setSensorData(processedData);
+        if (processedData.length > 0) {
+          const latestDate = processedData[processedData.length - 1].timestamp.split(" ")[0];
           setSelectedDate(latestDate);
         }
-      } catch (error) {
-        setError(error.message); // Handle error
-        console.error("Error fetching sensor data:", error);
+      } catch (err) {
+        setError(err.message);
+        console.error("Error fetching sensor data:", err);
       } finally {
         setLoading(false);
       }
     };
+
     fetchSensorData();
-  }, [port]);
+  }, []);
 
   if (loading) {
     return (
@@ -62,38 +72,63 @@ export default function SensorPort1() {
     return <div className="text-red-500 text-center mt-10">{error}</div>;
   }
 
-  if (!sensor) {
+  if (!sensorData || sensorData.length === 0) {
     return <div className="text-red-500 text-center mt-10">Sensor data not found.</div>;
   }
 
-  // Filter data based on selected date
-  const filteredSensorData = sensor.data.filter((entry) => entry.timestamp.startsWith(selectedDate));
-  const timestamps = filteredSensorData.map((entry) => entry.timestamp.split(" ")[1]);
+  // Filter data based on selected date (format: "YYYY-MM-DD")
+  const filteredSensorData = sensorData.filter((entry) =>
+    entry.timestamp.startsWith(selectedDate)
+  );
+  console.log("Filtered sensor data for", selectedDate, ":", filteredSensorData);
 
-  const createChartData = (label, data, borderColor, gradient) => ({
-    labels: timestamps,
+  // Extract time portion (HH:MM:SS) for x-axis labels
+  const timeLabels = filteredSensorData.map((entry) => entry.timestamp.split(" ")[1]);
+
+  // Helper function to determine Y-axis min/max for proper scaling
+  const getMinMax = (data) => {
+    if (data.length === 0) return { min: 0, max: 1 };
+    const values = data.filter((d) => d !== null);
+    if (values.length === 0) return { min: 0, max: 1 };
+    return { min: Math.min(...values) - 0.05, max: Math.max(...values) + 0.05 };
+  };
+
+  const waterContentMinMax = getMinMax(filteredSensorData.map((d) => d.water_content));
+  const soilTempMinMax = getMinMax(filteredSensorData.map((d) => d.soil_temp));
+
+  // Compute ET values using the formula: ET = |Δ(water_content)| * 200
+  const etValues = filteredSensorData.map((entry, index, arr) => {
+    if (index === 0) return 0;
+    const diff = Math.abs(Number(entry.water_content) - Number(arr[index - 1].water_content));
+    return diff * 200;
+  });
+  const etMinMax = getMinMax(etValues);
+
+  // Function to create chart data
+  const createChartData = (label, data, borderColor) => ({
+    labels: timeLabels,
     datasets: [
       {
         label,
         data,
         borderColor,
-        backgroundColor: gradient,
-        fill: true,
-        tension: 0.4,
-        borderWidth: 2,
-        pointBackgroundColor: "white",
-        pointBorderColor: borderColor,
-        pointBorderWidth: 2,
-        shadowColor: "rgba(0, 0, 0, 0.6)",
-        shadowBlur: 10,
+        backgroundColor: "transparent",
+        fill: false,
+        borderWidth: 3,
+        pointRadius: 2,
+        tension: 0.1,
       },
     ],
   });
 
-  const chartOptions = {
+  const chartOptions = (min, max) => ({
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
+      legend: {
+        position: "top",
+        labels: { color: "white", font: { size: 14 } },
+      },
       tooltip: {
         backgroundColor: "#222",
         titleColor: "white",
@@ -102,21 +137,22 @@ export default function SensorPort1() {
     },
     scales: {
       x: {
-        grid: { color: "rgba(255,255,255,0.1)" },
+        grid: { color: "rgba(255,255,255,0.3)", lineWidth: 1.5 },
+        ticks: { color: "white", font: { size: 12 }, maxRotation: 45 },
       },
       y: {
-        grid: { color: "rgba(255,255,255,0.1)" },
+        min,
+        max,
+        grid: { color: "rgba(255,255,255,0.3)", lineWidth: 1.5 },
+        ticks: { color: "white", font: { size: 12 } },
       },
     },
-  };
+  });
 
   return (
-    <main className="flex flex-col items-center min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6 w-full">
-      <div className="w-full max-w-5xl bg-gray-900 p-6 rounded-lg shadow-2xl">
-        <h1 className="text-3xl font-bold text-center mb-4">{sensor.name}</h1>
-        <p className="text-sm text-center mb-4">Serial Number: {sensor.serialNumber}</p>
-
-        {/* Date Picker */}
+    <main className="flex flex-col items-center min-h-screen bg-gray-900 text-white p-6 w-full">
+      <div className="w-full max-w-5xl bg-gray-800 p-6 rounded-lg shadow-2xl">
+        <h1 className="text-3xl font-bold text-center mb-4">Sensor Port 1 Data</h1>
         <div className="flex justify-center mb-6">
           <input
             type="date"
@@ -125,50 +161,44 @@ export default function SensorPort1() {
             className="px-4 py-2 rounded-lg bg-gray-700 text-white outline-none shadow-lg"
           />
         </div>
-
-        {/* Graphs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl">
+        {/* Arrange graphs in a grid with three columns */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-gray-700 p-6 rounded-xl shadow-2xl">
             <h2 className="text-xl font-semibold text-center mb-3">Water Content</h2>
             <div className="h-72">
               <Line
                 data={createChartData(
                   "Water Content",
-                  filteredSensorData.map((d) => d.water_content),
-                  "blue",
-                  "rgba(0, 0, 255, 0.3)"
+                  filteredSensorData.map(d => d.water_content),
+                  "blue"
                 )}
-                options={chartOptions}
+                options={chartOptions(waterContentMinMax.min, waterContentMinMax.max)}
               />
             </div>
           </div>
-
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl">
+          <div className="bg-gray-700 p-6 rounded-xl shadow-2xl">
             <h2 className="text-xl font-semibold text-center mb-3">Soil Temperature</h2>
             <div className="h-72">
               <Line
                 data={createChartData(
                   "Soil Temperature",
-                  filteredSensorData.map((d) => d.soil_temp),
-                  "orange",
-                  "rgba(255, 165, 0, 0.3)"
+                  filteredSensorData.map(d => d.soil_temp),
+                  "orange"
                 )}
-                options={chartOptions}
+                options={chartOptions(soilTempMinMax.min, soilTempMinMax.max)}
               />
             </div>
           </div>
-
-          <div className="bg-gray-800 p-6 rounded-xl shadow-2xl md:col-span-2">
-            <h2 className="text-xl font-semibold text-center mb-3">Bulk EC</h2>
+          <div className="bg-gray-700 p-6 rounded-xl shadow-2xl">
+            <h2 className="text-xl font-semibold text-center mb-3">Evapotranspiration</h2>
+            {/* Display the ET calculation formula above the graph */}
+            <div className="text-center mb-2 text-sm text-gray-300">
+              ET = |Δ(water_content)| × 200
+            </div>
             <div className="h-72">
               <Line
-                data={createChartData(
-                  "Bulk EC",
-                  filteredSensorData.map((d) => d.bulk_ec),
-                  "green",
-                  "rgba(0, 255, 0, 0.3)"
-                )}
-                options={chartOptions}
+                data={createChartData("Evapotranspiration", etValues, "purple")}
+                options={chartOptions(etMinMax.min, etMinMax.max)}
               />
             </div>
           </div>
